@@ -1,0 +1,16 @@
+[package]
+name = "pixelart"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+description = "Turn a raster image into pixel art: box-downsample to a grid, adaptive palette, hard-edged upscale"
+license = "Apache-2.0"
+keywords = ["pixel-art", "quantization", "palette", "image"]
+categories = ["multimedia::images"]
+
+[dependencies]
+color_quant = "1.1"
+image = { version = "0.25", default-features = false }
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }

@@ -37,7 +37,7 @@ zodiac-aquarius = Kova
 zodiac-pisces = Balık
 
 tui-title = ages
-tui-help = ↑↓ seç  a ekle  e düzenle  d sil  s sırala  v görünüm  l dil  q çık
+tui-help = ↑↓ seç  a ekle  e düzenle  d sil  x avatar kaldır  s sırala  v görünüm  l dil  q çık
 tui-help-form = Tab sonraki alan  Enter kaydet  Esc iptal
 tui-help-confirm = y evet  n hayır
 tui-help-error = bir tuşa bas
@@ -58,8 +58,14 @@ field-time = doğum saati (SS:DD, isteğe bağlı)
 field-tz = saat dilimi (IANA, isteğe bağlı)
 field-avatar = avatar resim yolu (isteğe bağlı)
 no-avatar = avatar yok
+tui-remove-avatar-title = Avatarı kaldır
+tui-remove-avatar-body = { $alias } avatarı kaldırılsın mı?
+field-avatar-kept = (mevcut avatar korunur; kaldırmak için listede x)
+pixel-tag = pixel art
+field-pixel = avatar pixel art olsun mu? (e/h veya kare sayısı, örn. 48)
+error-bad-pixel = "{ $value }" geçerli bir pixel art seçimi değil. e, h veya 2-256 arası kare sayısı kullan.
 
-error-bad-alias = "{ $alias }" takma adı geçersiz: sadece harf, rakam, - ve _ kullan.
+error-bad-alias = "{ $alias }" takma adı geçersiz: boş olamaz, / veya \ içeremez, 64 karakteri geçemez.
 error-duplicate-alias = "{ $alias }" takma adı zaten var.
 error-unknown-alias = "{ $alias }" adlı kişi yok.
 error-empty-name = Ad zorunlu.

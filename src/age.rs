@@ -283,6 +283,7 @@ mod tests {
             has_time: hm.is_some(),
             tz,
             avatar: false,
+            pixel: false,
         }
     }
     fn utc(y: i32, m: u32, d: u32, h: u32, mi: u32, s: u32) -> DateTime<Utc> {

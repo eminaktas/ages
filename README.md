@@ -4,7 +4,7 @@ Show how old the people you care about are — live, in your terminal, with thei
 
 ```bash
 $ ages list
-alias  name               age                  zodiac       birthday
+alias  name               age                  zodiac      birthday
 nana   Beatrix Lindqvist  81y 2m 19d 06:41:07  ♉ Taurus    birthday in 283 days
 bro    Rafael Okonkwo     34y 0m 0d            ♎ Libra     🎂 birthday today
 kiddo  Hana Petrova       2y 7m 12d            ♒ Aquarius  birthday in 199 days
@@ -100,6 +100,7 @@ cargo install --path .                                   # local checkout
 ages add nana --name Beatrix --surname Lindqvist --birth 02.07.1945 --time 06:41 \
          --tz Europe/Stockholm --avatar ~/Pictures/nana.jpg
 ages add bro --name Rafael --surname Okonkwo --birth 1992-09-21
+ages add "little bro" --name Can --birth 2004-05-16 --avatar ~/Pictures/can.png --pixel
 ages                # TUI (or a table when piped)
 ages list --json    # machine-readable
 ```
@@ -107,15 +108,19 @@ ages list --json    # machine-readable
 Dates are `YYYY-MM-DD` or `DD.MM.YYYY`; time is `HH:MM` (24h). Without `--time` the age is shown
 to the day. Without `--tz` the system timezone is used.
 
+An alias is free text: any script, spaces and punctuation are fine (`Eşim`, `little bro`,
+`anne (Ayşe)`), up to 64 characters. Only `/`, `\` and control characters are rejected, because
+the alias doubles as the avatar file name. Quote aliases with spaces on the command line.
+
 ## Commands
 
 ```bash
 ages                          TUI in a terminal, table in a pipe
 ages list [--json] [--sort age|alias|birthday] [--view calendar|years|months|weeks|days|hours]
 ages add <alias> --name <first> [--surname <last>] --birth <date>
-         [--time HH:MM] [--tz <IANA>] [--avatar <image>]
+         [--time HH:MM] [--tz <IANA>] [--avatar <image> [--pixel [GRID]]]
 ages edit <alias> [--name ..] [--surname ..] [--birth ..] [--time ..] [--tz ..]
-         [--avatar <image>] [--no-avatar] [--rename <alias>]
+         [--avatar <image> [--pixel [GRID]]] [--no-avatar] [--rename <alias>]
 ages remove <alias> [-y]
 ages tui
 Global: --lang en|tr   --data-dir <path>
@@ -131,6 +136,7 @@ Exit codes: 0 ok, 1 error, 2 usage.
 | `a` | add person |
 | `e` | edit person |
 | `d` | delete (confirm with `y`) |
+| `x` | remove the selected person's avatar (confirm with `y`) |
 | `s` | sort picker: age / alias / birthday |
 | `v` | age view picker: calendar / years / months / weeks / days / hours |
 | `l` | language picker: English / Türkçe |
@@ -146,6 +152,25 @@ stored under the data dir; the original is no longer needed. In terminals with a
 protocol (kitty, iTerm2, WezTerm, Ghostty, sixel-capable ones) it renders as real pixels;
 elsewhere it falls back to half-block characters. Set `AGES_HALFBLOCKS=1` to skip the terminal
 capability query and always use half-blocks.
+
+Remove an avatar with `ages edit <alias> --no-avatar` or `x` in the TUI.
+
+### Pixel art
+
+Add `--pixel` next to `--avatar` to store the avatar as pixel art instead of a photo:
+
+```bash
+ages add nana --name Beatrix --birth 02.07.1945 --avatar nana.jpg --pixel      # 32×32 mosaic
+ages edit nana --avatar nana.jpg --pixel 48                                      # finer grid
+ages edit nana --avatar nana.jpg                                                 # back to a photo
+```
+
+The conversion happens once, at import: the image is center-cropped, box-downsampled to a
+`GRID×GRID` mosaic (default 32, 2–256), reduced to an adaptive 32-color palette and stored as a
+hard-edged 256×256 PNG. Nothing is recomputed at render time, so the TUI is as fast as with photos.
+In the TUI form the last field asks `pixel art? (y/n or grid size)`. `people.toml` records
+`pixel = true` so the viewer keeps the edges crisp. The conversion lives in the small
+[`pixelart`](crates/pixelart) crate in this repo (built on `image` + `color_quant`).
 
 ## Data
 
@@ -167,9 +192,12 @@ compiled into the binary.
 ## Development
 
 ```bash
-cargo test
-cargo clippy --all-targets -- -D warnings
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+The repo is a Cargo workspace: the `ages` binary at the root and `crates/pixelart`, the
+photo-to-pixel-art library it depends on.
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy and tests on Linux and macOS for every push to
 `main` and every pull request.

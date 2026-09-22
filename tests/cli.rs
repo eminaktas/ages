@@ -266,3 +266,113 @@ fn ages_home_env_is_respected() {
         .success();
     assert!(d.path().join("people.toml").exists());
 }
+
+#[test]
+fn unicode_alias_with_spaces_round_trips_with_avatar() {
+    let d = tempfile::tempdir().unwrap();
+    let img = d.path().join("in.png");
+    image::RgbImage::from_fn(20, 20, |_, _| image::Rgb([1, 2, 3]))
+        .save(&img)
+        .unwrap();
+    ages(d.path())
+        .args([
+            "add",
+            "Küçük Kardeş",
+            "--name",
+            "Can",
+            "--birth",
+            "2000-01-01",
+            "--avatar",
+        ])
+        .arg(&img)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Küçük Kardeş"));
+    assert!(d.path().join("avatars/Küçük Kardeş.png").exists());
+    ages(d.path())
+        .args(["edit", "Küçük Kardeş", "--rename", " Eşim "])
+        .assert()
+        .success();
+    assert!(d.path().join("avatars/Eşim.png").exists());
+    let out = ages(d.path()).args(["list", "--json"]).output().unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v[0]["alias"], "Eşim");
+    ages(d.path())
+        .args(["add", "a/b", "--name", "A", "--birth", "2000-01-01"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("invalid"));
+}
+
+#[test]
+fn pixel_avatar_is_stored_pixelated() {
+    let d = tempfile::tempdir().unwrap();
+    let img = d.path().join("in.png");
+    image::RgbImage::from_fn(200, 200, |x, y| image::Rgb([x as u8, y as u8, 90]))
+        .save(&img)
+        .unwrap();
+    // --pixel without --avatar is a usage error.
+    ages(d.path())
+        .args([
+            "add",
+            "a",
+            "--name",
+            "A",
+            "--birth",
+            "2000-01-01",
+            "--pixel",
+        ])
+        .assert()
+        .code(2);
+    ages(d.path())
+        .args([
+            "add",
+            "a",
+            "--name",
+            "A",
+            "--birth",
+            "2000-01-01",
+            "--pixel",
+            "16",
+            "--avatar",
+        ])
+        .arg(&img)
+        .assert()
+        .success();
+    let out = ages(d.path()).args(["list", "--json"]).output().unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v[0]["pixel"], true);
+    assert!(
+        std::fs::read_to_string(d.path().join("people.toml"))
+            .unwrap()
+            .contains("pixel = true")
+    );
+    let stored = image::open(d.path().join("avatars/a.png"))
+        .unwrap()
+        .to_rgba8();
+    let colors: std::collections::HashSet<[u8; 4]> = stored.pixels().map(|p| p.0).collect();
+    assert!(colors.len() <= 32, "{}", colors.len());
+    assert_eq!(stored.get_pixel(0, 0), stored.get_pixel(15, 15));
+    // Re-importing without --pixel goes back to a smooth photo.
+    ages(d.path())
+        .args(["edit", "a", "--avatar"])
+        .arg(&img)
+        .assert()
+        .success();
+    let out = ages(d.path()).args(["list", "--json"]).output().unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v[0]["pixel"], false);
+    let stored = image::open(d.path().join("avatars/a.png"))
+        .unwrap()
+        .to_rgba8();
+    let colors: std::collections::HashSet<[u8; 4]> = stored.pixels().map(|p| p.0).collect();
+    assert!(colors.len() > 32);
+    ages(d.path())
+        .args(["edit", "a", "--no-avatar"])
+        .assert()
+        .success();
+    let out = ages(d.path()).args(["list", "--json"]).output().unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v[0]["pixel"], false);
+    assert!(v[0]["avatar"].is_null());
+}

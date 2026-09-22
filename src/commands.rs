@@ -31,10 +31,11 @@ pub fn build_person(
         has_time: t.is_some(),
         tz,
         avatar: false,
+        pixel: false,
     })
 }
 
-fn list(store: &mut Store, json: bool, sort: Option<SortKey>, view: Option<AgeView>) -> Result<()> {
+fn list(store: &Store, json: bool, sort: Option<SortKey>, view: Option<AgeView>) -> Result<()> {
     let now = Utc::now();
     let mut people = store.data.people.clone();
     sort_people(&mut people, sort.unwrap_or(store.data.settings.sort), now);
@@ -78,12 +79,12 @@ pub fn run(cli: Cli) -> Result<()> {
             if std::io::stdout().is_terminal() {
                 crate::tui::run(store)
             } else {
-                list(&mut store, false, None, None)
+                list(&store, false, None, None)
             }
         }
         Some(Command::Tui) => crate::tui::run(store),
         Some(Command::List { json, sort, view }) => {
-            list(&mut store, json, sort.map(Into::into), view.map(Into::into))
+            list(&store, json, sort.map(Into::into), view.map(Into::into))
         }
         Some(Command::Add {
             alias,
@@ -93,8 +94,10 @@ pub fn run(cli: Cli) -> Result<()> {
             time,
             tz,
             avatar: img,
+            pixel,
         }) => {
-            let mut p = build_person(
+            let alias = alias.trim().to_string();
+            let p = build_person(
                 &alias,
                 &name,
                 surname.as_deref(),
@@ -102,15 +105,14 @@ pub fn run(cli: Cli) -> Result<()> {
                 time.as_deref(),
                 tz.as_deref(),
             )?;
-            crate::model::validate_alias(&alias)?;
-            if store.find(&alias).is_some() {
-                bail!(StoreError::Duplicate(alias));
-            }
-            if let Some(src) = img {
-                avatar::import(&src, &store.avatar_path(&alias))?;
-                p.avatar = true;
-            }
+            // `add` validates the alias and rejects duplicates before any file is written.
             store.add(p)?;
+            if let Some(src) = img {
+                avatar::import(&src, &store.avatar_path(&alias), pixel)?;
+                let p = store.find_mut(&alias).expect("just added");
+                p.avatar = true;
+                p.pixel = pixel.is_some();
+            }
             store.save()?;
             println!("{}", fl!(i18n::LOADER, "added", alias = alias.as_str()));
             Ok(())
@@ -124,11 +126,13 @@ pub fn run(cli: Cli) -> Result<()> {
             tz,
             avatar: img,
             no_avatar,
+            pixel,
             rename,
         }) => {
             if store.find(&alias).is_none() {
                 bail!(StoreError::Unknown(alias));
             }
+            let rename = rename.map(|r| r.trim().to_string());
             // Validate every input before touching memory or disk.
             let new_date = birth.as_deref().map(parse_date).transpose()?;
             let new_time = time.as_deref().map(parse_time).transpose()?;
@@ -153,7 +157,7 @@ pub fn run(cli: Cli) -> Result<()> {
             let current = rename.clone().unwrap_or_else(|| alias.clone());
             let avatar_path = store.avatar_path(&current);
             if let Some(src) = &img {
-                avatar::import(src, &avatar_path)?;
+                avatar::import(src, &avatar_path, pixel)?;
             }
             let p = store.find_mut(&current).expect("renamed person exists");
             if let Some(n) = name {
@@ -175,9 +179,11 @@ pub fn run(cli: Cli) -> Result<()> {
             if no_avatar {
                 let _ = std::fs::remove_file(&avatar_path);
                 p.avatar = false;
+                p.pixel = false;
             }
             if img.is_some() {
                 p.avatar = true;
+                p.pixel = pixel.is_some();
             }
             store.save()?;
             println!("{}", fl!(i18n::LOADER, "updated", alias = current.as_str()));

@@ -136,13 +136,9 @@ pub fn display_width(s: &str) -> usize {
         .sum()
 }
 
-fn width(s: &str) -> usize {
-    display_width(s)
-}
-
 fn pad(s: &str, w: usize) -> String {
     let mut out = s.to_string();
-    out.extend(std::iter::repeat_n(' ', w.saturating_sub(width(s))));
+    out.extend(std::iter::repeat_n(' ', w.saturating_sub(display_width(s))));
     out
 }
 
@@ -172,10 +168,10 @@ pub fn render_table(rows: &[Row]) -> String {
             ]
         })
         .collect();
-    let mut widths: Vec<usize> = header.iter().map(|h| width(h)).collect();
+    let mut widths: Vec<usize> = header.iter().map(|h| display_width(h)).collect();
     for c in &cells {
         for (i, v) in c.iter().enumerate() {
-            widths[i] = widths[i].max(width(v));
+            widths[i] = widths[i].max(display_width(v));
         }
     }
     let line = |c: &[String; 5]| {
@@ -201,6 +197,7 @@ struct JsonPerson<'a> {
     has_time: bool,
     tz: Option<String>,
     avatar: Option<String>,
+    pixel: bool,
     age: AgeBreakdown,
     zodiac: &'static str,
     next_birthday_in_days: i64,
@@ -219,6 +216,7 @@ pub fn render_json(people: &[Person], store: &Store, now: DateTime<Utc>) -> Stri
             avatar: p
                 .avatar
                 .then(|| store.avatar_path(&p.alias).display().to_string()),
+            pixel: p.pixel,
             age: age_at(p, now),
             zodiac: zodiac(p.birth.date()).key(),
             next_birthday_in_days: next_birthday_days(p, now),
@@ -268,6 +266,7 @@ mod tests {
             has_time: true,
             tz: Some(chrono_tz::Tz::UTC),
             avatar: false,
+            pixel: false,
         };
         let now = chrono::TimeZone::with_ymd_and_hms(&Utc, 2001, 1, 8, 12, 0, 0).unwrap();
         assert_eq!(

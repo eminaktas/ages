@@ -1,6 +1,9 @@
+[workspace]
+members = [".", "crates/pixelart"]
+
 [package]
 name = "ages"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.98"
 description = "Show how old the people you care about are, live, in your terminal"
@@ -17,6 +20,7 @@ home = "0.5"
 i18n-embed = { version = "0.16", features = ["fluent-system", "desktop-requester"] }
 i18n-embed-fl = "0.10"
 image = "0.25"
+pixelart = { path = "crates/pixelart", version = "0.1.0" }
 ratatui = "0.30"
 ratatui-image = { version = "11", default-features = false, features = ["crossterm", "image-defaults"] }
 rust-embed = "8"

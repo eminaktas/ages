@@ -2,23 +2,24 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use i18n_embed_fl::fl;
 use ratatui_image::picker::Picker as ImagePicker;
 use ratatui_image::protocol::StatefulProtocol;
 
 use crate::age::sort_people;
 use crate::model::{AgeView, Person, SortKey};
 use crate::output::{sort_label, view_label};
-use i18n_embed_fl::fl;
-
-pub const SORTS: [SortKey; 3] = [SortKey::Age, SortKey::Alias, SortKey::Birthday];
 use crate::store::Store;
 use crate::tui::form::FormState;
 use crate::{avatar, i18n};
 
+pub const SORTS: [SortKey; 3] = [SortKey::Age, SortKey::Alias, SortKey::Birthday];
+
 pub enum Mode {
     List,
-    Form(FormState),
+    Form(Box<FormState>),
     ConfirmDelete,
+    ConfirmRemoveAvatar,
     Error(String),
     Picker(Picker),
 }
@@ -134,12 +135,14 @@ impl App {
     pub fn set_lang(&mut self, code: &str) -> Result<()> {
         i18n::select(code);
         self.store.data.settings.lang = Some(code.to_string());
-        Ok(self.store.save()?)
+        self.store.save()?;
+        Ok(())
     }
 
     pub fn set_view(&mut self, view: AgeView) -> Result<()> {
         self.store.data.settings.age_view = view;
-        Ok(self.store.save()?)
+        self.store.save()?;
+        Ok(())
     }
 
     pub fn open_picker(&mut self, kind: PickerKind) {
@@ -179,7 +182,7 @@ impl App {
         let (kind, i) = (p.kind, p.selected);
         self.mode = Mode::List;
         match kind {
-            PickerKind::Lang => self.set_lang(i18n::SUPPORTED[i.min(1)]),
+            PickerKind::Lang => self.set_lang(i18n::SUPPORTED[i.min(i18n::SUPPORTED.len() - 1)]),
             PickerKind::Sort => self.set_sort(SORTS[i.min(SORTS.len() - 1)]),
             PickerKind::View => self.set_view(AgeView::ALL[i.min(AgeView::ALL.len() - 1)]),
         }
@@ -206,13 +209,34 @@ impl App {
         self.mode = Mode::List;
     }
 
+    /// Ask before dropping the selected person's avatar; no-op when they have none.
+    pub fn begin_remove_avatar(&mut self) {
+        if self.selected_person().is_some_and(|p| p.avatar) {
+            self.mode = Mode::ConfirmRemoveAvatar;
+        }
+    }
+
+    pub fn confirm_remove_avatar(&mut self) -> Result<()> {
+        if let Some(alias) = self.selected_person().map(|p| p.alias.clone()) {
+            let _ = std::fs::remove_file(self.store.avatar_path(&alias));
+            if let Some(p) = self.store.find_mut(&alias) {
+                p.avatar = false;
+                p.pixel = false;
+            }
+            self.avatars.remove(&alias);
+            self.store.save()?;
+        }
+        self.mode = Mode::List;
+        Ok(())
+    }
+
     pub fn begin_add(&mut self) {
-        self.mode = Mode::Form(FormState::new_add());
+        self.mode = Mode::Form(Box::new(FormState::new_add()));
     }
 
     pub fn begin_edit(&mut self) {
         if let Some(p) = self.selected_person() {
-            self.mode = Mode::Form(FormState::from_person(p));
+            self.mode = Mode::Form(Box::new(FormState::from_person(p)));
         }
     }
 
@@ -234,7 +258,7 @@ impl App {
         let alias = out.person.alias.clone();
         // Import first (into the *final* alias path) so a bad image never leaves a half-applied rename.
         if let Some(src) = &out.avatar_src {
-            if let Err(e) = avatar::import(src, &self.store.avatar_path(&alias)) {
+            if let Err(e) = avatar::import(src, &self.store.avatar_path(&alias), out.pixel) {
                 if let Mode::Form(f) = &mut self.mode {
                     f.error = Some(e.to_string());
                 }
@@ -265,10 +289,7 @@ impl App {
     pub fn avatar_state(&mut self, alias: &str) -> Option<&mut StatefulProtocol> {
         if !self.avatars.contains_key(alias) {
             let picker = self.picker.as_ref()?;
-            let has = self.store.find(alias).is_some_and(|p| p.avatar);
-            if !has {
-                return None;
-            }
+            self.store.find(alias).filter(|p| p.avatar)?;
             let img = avatar::load(&self.store.avatar_path(alias))?;
             let proto = picker.new_resize_protocol(img);
             self.avatars.insert(alias.to_string(), proto);
@@ -298,6 +319,7 @@ pub(crate) mod test_support {
             has_time: true,
             tz: Some(chrono_tz::Europe::Istanbul),
             avatar: false,
+            pixel: false,
         }
     }
 
@@ -460,6 +482,36 @@ mod tests {
         app.begin_delete();
         handle_key(&mut app, ctrl_c).unwrap();
         assert!(app.should_quit);
+    }
+
+    #[test]
+    fn remove_avatar_flow() {
+        let (mut app, d, _g) = app3();
+        // `x` does nothing for a person without an avatar.
+        handle_key(&mut app, KeyEvent::from(KeyCode::Char('x'))).unwrap();
+        assert!(matches!(app.mode, Mode::List));
+        // Give baba an avatar on disk, then remove it through the confirm popup.
+        let path = app.store.avatar_path("baba");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"png").unwrap();
+        app.store.find_mut("baba").unwrap().avatar = true;
+        handle_key(&mut app, KeyEvent::from(KeyCode::Char('x'))).unwrap();
+        assert!(matches!(app.mode, Mode::ConfirmRemoveAvatar));
+        handle_key(&mut app, KeyEvent::from(KeyCode::Char('n'))).unwrap();
+        assert!(app.store.find("baba").unwrap().avatar);
+        assert!(path.exists());
+        handle_key(&mut app, KeyEvent::from(KeyCode::Char('x'))).unwrap();
+        handle_key(&mut app, KeyEvent::from(KeyCode::Char('y'))).unwrap();
+        assert!(matches!(app.mode, Mode::List));
+        assert!(!app.store.find("baba").unwrap().avatar);
+        assert!(!path.exists());
+        assert!(
+            !Store::open(d.path().into())
+                .unwrap()
+                .find("baba")
+                .unwrap()
+                .avatar
+        );
     }
 
     #[test]

@@ -40,7 +40,7 @@ zodiac-aquarius = Aquarius
 zodiac-pisces = Pisces
 
 tui-title = ages
-tui-help = ↑↓ select  a add  e edit  d delete  s sort  v view  l language  q quit
+tui-help = ↑↓ select  a add  e edit  d delete  x avatar off  s sort  v view  l language  q quit
 tui-help-form = Tab next field  Enter save  Esc cancel
 tui-help-confirm = y yes  n no
 tui-help-error = press any key
@@ -61,8 +61,14 @@ field-time = birth time (HH:MM, optional)
 field-tz = timezone (IANA, optional)
 field-avatar = avatar image path (optional)
 no-avatar = no avatar
+tui-remove-avatar-title = Remove avatar
+tui-remove-avatar-body = Remove the avatar of { $alias }?
+field-avatar-kept = (current avatar is kept; press x in the list to remove it)
+pixel-tag = pixel art
+field-pixel = store avatar as pixel art? (y/n or grid size, e.g. 48)
+error-bad-pixel = "{ $value }" is not a pixel-art choice. Use y, n or a grid size from 2 to 256.
 
-error-bad-alias = Alias "{ $alias }" is invalid: use letters, digits, - and _ only.
+error-bad-alias = Alias "{ $alias }" is invalid: it cannot be blank, contain / or \, or exceed 64 characters.
 error-duplicate-alias = Alias "{ $alias }" already exists.
 error-unknown-alias = No person with alias "{ $alias }".
 error-empty-name = First name is required.

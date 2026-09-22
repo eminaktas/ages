@@ -56,18 +56,29 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     );
     draw_detail(frame, app, detail);
     draw_footer(frame, app, footer);
+    let alias = app
+        .selected_person()
+        .map(|p| p.alias.as_str())
+        .unwrap_or("");
     match &app.mode {
         Mode::List => {}
-        Mode::ConfirmDelete => draw_confirm(frame, app, screen),
+        Mode::ConfirmDelete => draw_confirm(
+            frame,
+            screen,
+            fl!(LOADER, "tui-delete-title"),
+            fl!(LOADER, "tui-delete-body", alias = alias),
+            Color::Red,
+        ),
+        Mode::ConfirmRemoveAvatar => draw_confirm(
+            frame,
+            screen,
+            fl!(LOADER, "tui-remove-avatar-title"),
+            fl!(LOADER, "tui-remove-avatar-body", alias = alias),
+            Color::Yellow,
+        ),
         Mode::Error(msg) => draw_error(frame, msg, screen),
-        Mode::Form(form) => {
-            let form = form.clone();
-            draw_form(frame, &form, screen);
-        }
-        Mode::Picker(p) => {
-            let p = p.clone();
-            draw_picker(frame, &p, screen);
-        }
+        Mode::Form(form) => draw_form(frame, form, screen),
+        Mode::Picker(p) => draw_picker(frame, p, screen),
     }
 }
 
@@ -173,7 +184,13 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
     match app.avatar_state(&p.alias) {
         Some(state) => {
             // Scale (not Fit): always fill the box, upscaling small stored avatars too.
-            let widget = StatefulImage::default().resize(Resize::Scale(Some(FilterType::Lanczos3)));
+            // Pixel art keeps hard edges; photos get a smooth filter.
+            let filter = if p.pixel {
+                FilterType::Nearest
+            } else {
+                FilterType::Lanczos3
+            };
+            let widget = StatefulImage::default().resize(Resize::Scale(Some(filter)));
             frame.render_stateful_widget(widget, avatar_box, state);
         }
         None => {
@@ -196,9 +213,13 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
             fl!(LOADER, "time-unknown")
         )
     };
-    let tz =
+    let mut tz =
         p.tz.map(|t| t.name().to_string())
             .unwrap_or_else(|| fl!(LOADER, "tz-local"));
+    if p.avatar && p.pixel {
+        tz.push_str(" · ▦ ");
+        tz.push_str(&fl!(LOADER, "pixel-tag"));
+    }
     let mut bday = Line::from(format!(
         "{} {} · {}",
         z.symbol(),
@@ -236,7 +257,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let keys = match &app.mode {
         Mode::List => fl!(LOADER, "tui-help"),
         Mode::Form(_) => fl!(LOADER, "tui-help-form"),
-        Mode::ConfirmDelete => fl!(LOADER, "tui-help-confirm"),
+        Mode::ConfirmDelete | Mode::ConfirmRemoveAvatar => fl!(LOADER, "tui-help-confirm"),
         Mode::Error(_) => fl!(LOADER, "tui-help-error"),
         Mode::Picker(_) => fl!(LOADER, "tui-help-pick"),
     };
@@ -271,19 +292,15 @@ fn centered_box(w: u16, h: u16, area: Rect) -> Rect {
     }
 }
 
-fn draw_confirm(frame: &mut Frame, app: &App, area: Rect) {
-    let alias = app
-        .selected_person()
-        .map(|p| p.alias.as_str())
-        .unwrap_or("");
-    let body = fl!(LOADER, "tui-delete-body", alias = alias);
+/// Yes/no popup with a single centered line of text.
+fn draw_confirm(frame: &mut Frame, area: Rect, title: String, body: String, color: Color) {
     let r = centered_box((body.chars().count() as u16 + 8).max(30), 5, area);
     popup(
         frame,
         r,
-        fl!(LOADER, "tui-delete-title"),
+        title,
         vec![Line::from(""), Line::from(body).centered()],
-        Color::Red,
+        color,
     );
 }
 
@@ -338,6 +355,7 @@ fn field_label(key: &str) -> String {
         "field-date" => fl!(LOADER, "field-date"),
         "field-time" => fl!(LOADER, "field-time"),
         "field-tz" => fl!(LOADER, "field-tz"),
+        "field-pixel" => fl!(LOADER, "field-pixel"),
         _ => fl!(LOADER, "field-avatar"),
     }
 }
@@ -361,12 +379,21 @@ fn draw_form(frame: &mut Frame, form: &FormState, area: Rect) {
             dim()
         };
         lines.push(Line::from(Span::styled(field_label(key), label_style)));
-        let value = if focused {
+        let is_avatar_hint = key == &"field-avatar" && form.has_avatar && form.fields[i].is_empty();
+        let value = if is_avatar_hint {
+            format!(
+                "{}{}",
+                if focused { "▏" } else { "" },
+                fl!(LOADER, "field-avatar-kept")
+            )
+        } else if focused {
             format!("{}▏", form.fields[i])
         } else {
             form.fields[i].clone()
         };
-        let value_style = if focused {
+        let value_style = if is_avatar_hint {
+            dim()
+        } else if focused {
             Style::default().add_modifier(Modifier::UNDERLINED)
         } else {
             Style::default()
@@ -409,9 +436,6 @@ mod tests {
     fn wide_layout_shows_list_and_detail() {
         let (mut app, _d, _g) = app3();
         let s = render(&mut app, 100, 30);
-        if std::env::var_os("AGES_DUMP").is_some() {
-            eprintln!("{s}");
-        }
         assert!(s.contains("▶ baba"), "{s}");
         assert!(s.contains("  anne"), "{s}");
         assert!(s.contains("Mehmet Aktaş"), "{s}");
@@ -488,6 +512,31 @@ mod tests {
         assert!(s.contains("dede"), "{s}");
         assert!(s.contains("bad thing"), "{s}");
         assert!(s.contains("Tab next field"), "{s}");
+    }
+
+    #[test]
+    fn remove_avatar_popup_and_pixel_tag() {
+        let (mut app, _d, _g) = app3();
+        {
+            let p = app.store.find_mut("baba").unwrap();
+            p.avatar = true;
+            p.pixel = true;
+        }
+        let s = render(&mut app, 100, 30);
+        assert!(s.contains("▦ pixel art"), "{s}");
+        assert!(s.contains("x avatar off"), "{s}");
+        app.begin_remove_avatar();
+        let s = render(&mut app, 100, 30);
+        assert!(s.contains("Remove the avatar of baba?"), "{s}");
+    }
+
+    #[test]
+    fn edit_form_hints_kept_avatar() {
+        let (mut app, _d, _g) = app3();
+        app.store.find_mut("baba").unwrap().avatar = true;
+        app.begin_edit();
+        let s = render(&mut app, 100, 30);
+        assert!(s.contains("current avatar is kept"), "{s}");
     }
 
     #[test]

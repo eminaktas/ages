@@ -41,11 +41,11 @@ pub fn current() -> String {
     LOADER.current_language().language.as_str().to_string()
 }
 
-/// Resolve precedence: flag > settings > desktop locale > en.
-pub fn init(flag: Option<&str>, settings: Option<&str>) {
+/// Resolve precedence: flag > desktop locale > en. (The stored setting is applied
+/// later by `commands::run`, once the store is open.)
+pub fn init(flag: Option<&str>) {
     let code = flag
         .map(str::to_string)
-        .or_else(|| settings.map(str::to_string))
         .or_else(|| {
             DesktopLanguageRequester::requested_languages()
                 .into_iter()

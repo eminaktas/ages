@@ -10,8 +10,8 @@ use crate::model::{Person, validate_alias};
 use crate::store::{Store, StoreError};
 use crate::tui::app::{App, Mode};
 
-/// Field order: alias, first name, last name, date, time, tz, avatar path.
-pub const FIELDS: [&str; 7] = [
+/// Field order: alias, first name, last name, date, time, tz, avatar path, pixel art.
+pub const FIELDS: [&str; 8] = [
     "field-alias",
     "field-first-name",
     "field-last-name",
@@ -19,15 +19,18 @@ pub const FIELDS: [&str; 7] = [
     "field-time",
     "field-tz",
     "field-avatar",
+    "field-pixel",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormState {
     /// Alias of the person being edited; `None` when adding.
     pub editing: Option<String>,
-    pub fields: [String; 7],
+    pub fields: [String; 8],
     pub focus: usize,
     pub error: Option<String>,
+    /// The person being edited already has a stored avatar (shown as a hint on the avatar field).
+    pub has_avatar: bool,
 }
 
 impl FormState {
@@ -37,6 +40,7 @@ impl FormState {
             fields: Default::default(),
             focus: 0,
             error: None,
+            has_avatar: false,
         }
     }
 
@@ -55,21 +59,14 @@ impl FormState {
                 },
                 p.tz.map(|t| t.name().to_string()).unwrap_or_default(),
                 String::new(),
+                String::new(),
             ],
             focus: 0,
             error: None,
+            has_avatar: p.avatar,
         }
     }
-}
 
-#[derive(Debug)]
-pub struct FormOutput {
-    pub person: Person,
-    pub avatar_src: Option<PathBuf>,
-    pub rename_from: Option<String>,
-}
-
-impl FormState {
     pub fn next(&mut self) {
         self.focus = (self.focus + 1) % FIELDS.len();
     }
@@ -90,7 +87,7 @@ impl FormState {
 
     /// Validates every field against the store; the error string is already localized.
     pub fn validate(&self, store: &Store) -> Result<FormOutput, String> {
-        let [alias, first, last, date, time, tz, avatar] = &self.fields;
+        let [alias, first, last, date, time, tz, avatar, pixel] = &self.fields;
         let alias = alias.trim();
         validate_alias(alias).map_err(|e| e.to_string())?;
         let is_self = self.editing.as_deref() == Some(alias);
@@ -115,18 +112,46 @@ impl FormState {
         if let Some(src) = &avatar_src {
             crate::avatar::probe(src).map_err(|e| e.to_string())?;
         }
-        person.avatar = avatar_src.is_some()
-            || self
-                .editing
-                .as_deref()
-                .and_then(|a| store.find(a))
-                .is_some_and(|p| p.avatar);
+        let pixel = parse_pixel(pixel)?;
+        let existing = self.editing.as_deref().and_then(|a| store.find(a));
+        // A new image decides its own style; without one the stored avatar (and its style) stays.
+        (person.avatar, person.pixel) = if avatar_src.is_some() {
+            (true, pixel.is_some())
+        } else {
+            existing.map_or((false, false), |p| (p.avatar, p.pixel))
+        };
         let rename_from = self.editing.clone().filter(|old| old != alias);
         Ok(FormOutput {
             person,
             avatar_src,
+            pixel,
             rename_from,
         })
+    }
+}
+
+#[derive(Debug)]
+pub struct FormOutput {
+    pub person: Person,
+    pub avatar_src: Option<PathBuf>,
+    /// Mosaic grid when the new avatar should be stored as pixel art.
+    pub pixel: Option<u32>,
+    pub rename_from: Option<String>,
+}
+
+/// Parse the pixel-art field: empty / no → photo; yes (`y`, `e`, `evet`, `yes`) → default grid;
+/// a number → that grid size. Anything else is an error.
+pub fn parse_pixel(s: &str) -> Result<Option<u32>, String> {
+    let s = s.trim().to_lowercase();
+    match s.as_str() {
+        "" | "n" | "h" | "no" | "hayır" | "hayir" => Ok(None),
+        "y" | "e" | "yes" | "evet" => Ok(Some(crate::avatar::DEFAULT_PIXEL_GRID)),
+        _ => s
+            .parse::<u32>()
+            .ok()
+            .filter(|g| (2..=256).contains(g))
+            .map(Some)
+            .ok_or_else(|| fl!(LOADER, "error-bad-pixel", value = s.as_str())),
     }
 }
 
@@ -292,6 +317,69 @@ mod tests {
         assert!(app.store.find("mom").is_some());
         assert!(app.store.find(&old).is_none());
         assert_eq!(app.selected_person().unwrap().alias, "mom");
+    }
+
+    #[test]
+    fn edit_without_new_image_keeps_avatar_and_pixel_flag() {
+        let (mut app, _d, _g) = app3();
+        {
+            let p = app.store.find_mut("baba").unwrap();
+            p.avatar = true;
+            p.pixel = true;
+        }
+        app.begin_edit();
+        tab(&mut app);
+        type_str(&mut app, "X");
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(app.mode, Mode::List), "{:?}", form(&app).error);
+        let p = app.store.find("baba").unwrap();
+        assert!(p.avatar && p.pixel);
+    }
+
+    #[test]
+    fn add_with_pixel_avatar_via_form() {
+        let (mut app, d, _g) = app3();
+        let img = d.path().join("in.png");
+        image::RgbImage::from_fn(64, 64, |x, y| image::Rgb([x as u8 * 4, y as u8 * 4, 9]))
+            .save(&img)
+            .unwrap();
+        app.begin_add();
+        type_str(&mut app, "dede");
+        tab(&mut app);
+        type_str(&mut app, "Ali");
+        tab(&mut app);
+        tab(&mut app);
+        type_str(&mut app, "1940-01-01");
+        for _ in 0..3 {
+            tab(&mut app);
+        }
+        type_str(&mut app, img.to_str().unwrap());
+        tab(&mut app);
+        type_str(&mut app, "maybe");
+        key(&mut app, KeyCode::Enter);
+        assert!(form(&app).error.as_deref().unwrap().contains("pixel"));
+        for _ in 0..5 {
+            key(&mut app, KeyCode::Backspace);
+        }
+        type_str(&mut app, "e");
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(app.mode, Mode::List), "{:?}", form(&app).error);
+        let p = app.store.find("dede").unwrap();
+        assert!(p.avatar && p.pixel);
+        assert!(app.store.avatar_path("dede").exists());
+    }
+
+    #[test]
+    fn parse_pixel_values() {
+        assert_eq!(parse_pixel(""), Ok(None));
+        assert_eq!(parse_pixel("h"), Ok(None));
+        assert_eq!(
+            parse_pixel(" E "),
+            Ok(Some(crate::avatar::DEFAULT_PIXEL_GRID))
+        );
+        assert_eq!(parse_pixel("48"), Ok(Some(48)));
+        assert!(parse_pixel("1").is_err());
+        assert!(parse_pixel("x").is_err());
     }
 
     #[test]

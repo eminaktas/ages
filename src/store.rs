@@ -40,6 +40,8 @@ impl fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
+const PEOPLE_FILE: &str = "people.toml";
+
 pub struct Store {
     pub dir: PathBuf,
     pub data: StoreFile,
@@ -63,7 +65,7 @@ impl Store {
 
     /// Missing or empty file yields an empty store; malformed file is an error.
     pub fn open(dir: PathBuf) -> Result<Store, StoreError> {
-        let path = dir.join("people.toml");
+        let path = dir.join(PEOPLE_FILE);
         let data = match std::fs::read_to_string(&path) {
             Ok(text) if text.trim().is_empty() => StoreFile::default(),
             Ok(text) => toml::from_str(&text).map_err(|e| StoreError::Parse {
@@ -90,13 +92,13 @@ impl Store {
         };
         std::fs::create_dir_all(&self.dir).map_err(|e| wrap(e.to_string()))?;
         let text = toml::to_string_pretty(&self.data).map_err(|e| wrap(e.to_string()))?;
-        let tmp = self.dir.join("people.toml.tmp");
+        let tmp = path.with_extension("toml.tmp");
         std::fs::write(&tmp, text).map_err(|e| wrap(e.to_string()))?;
         std::fs::rename(&tmp, &path).map_err(|e| wrap(e.to_string()))
     }
 
     pub fn people_path(&self) -> PathBuf {
-        self.dir.join("people.toml")
+        self.dir.join(PEOPLE_FILE)
     }
 
     pub fn avatar_path(&self, alias: &str) -> PathBuf {
@@ -174,6 +176,7 @@ mod tests {
             has_time: true,
             tz: Some(chrono_tz::Europe::Istanbul),
             avatar: false,
+            pixel: false,
         }
     }
 
@@ -215,7 +218,7 @@ mod tests {
 
     #[test]
     fn bad_alias_rejected() {
-        for a in ["anne baba", "Ayşe", "", "a/b"] {
+        for a in ["", "a/b", "a\\b", ".."] {
             assert!(
                 matches!(validate_alias(a), Err(StoreError::BadAlias(_))),
                 "{a}"
@@ -225,6 +228,8 @@ mod tests {
             assert!(s.add(person(a)).is_err());
         }
         assert!(validate_alias("anne_2-x").is_ok());
+        assert!(validate_alias("Eşim").is_ok());
+        assert!(validate_alias("anne baba").is_ok());
     }
 
     #[test]
@@ -258,7 +263,7 @@ mod tests {
         ));
         assert!(s.avatar_path("anne").exists());
         assert!(matches!(
-            s.rename("anne", "bad alias"),
+            s.rename("anne", "bad/alias"),
             Err(StoreError::BadAlias(_))
         ));
         assert!(matches!(

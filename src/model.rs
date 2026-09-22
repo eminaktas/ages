@@ -17,6 +17,9 @@ pub struct Person {
     pub tz: Option<Tz>,
     #[serde(default)]
     pub avatar: bool,
+    /// Render the avatar as chunky pixel art instead of a smooth photo.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pixel: bool,
 }
 
 impl Person {
@@ -54,8 +57,6 @@ pub enum SortKey {
     Alias,
     Birthday,
 }
-
-impl SortKey {}
 
 /// How an age is displayed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -99,11 +100,19 @@ pub struct StoreFile {
     pub people: Vec<Person>,
 }
 
+pub const MAX_ALIAS_CHARS: usize = 64;
+
+/// An alias is free text (spaces and any script allowed) except what would break the
+/// avatar file name: path separators, control characters, `.`/`..`, blank, or over-long.
 pub fn validate_alias(alias: &str) -> Result<(), StoreError> {
-    let ok = !alias.is_empty()
+    let ok = !alias.trim().is_empty()
+        && alias == alias.trim()
+        && alias != "."
+        && alias != ".."
+        && alias.chars().count() <= MAX_ALIAS_CHARS
         && alias
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+            .all(|c| c != '/' && c != '\\' && !c.is_control());
     if ok {
         Ok(())
     } else {
@@ -128,6 +137,7 @@ mod tests {
             has_time: false,
             tz: None,
             avatar: false,
+            pixel: false,
         }
     }
 
@@ -137,6 +147,26 @@ mod tests {
         assert_eq!(p("Ayşe", Some("Aktaş")).initials(), "AA");
         assert_eq!(p("can", None).full_name(), "can");
         assert_eq!(p("can", None).initials(), "C");
+    }
+
+    #[test]
+    fn alias_accepts_unicode_and_spaces_rejects_path_chars() {
+        for a in [
+            "Eşim",
+            "Küçük Kardeş",
+            "anne (Ayşe)",
+            "anne_2-x",
+            "Ömer'in babası",
+        ] {
+            assert!(validate_alias(a).is_ok(), "{a}");
+        }
+        for a in [
+            "", "  ", " anne", "anne ", "a/b", "a\\b", ".", "..", "a\tb", "a\nb",
+        ] {
+            assert!(validate_alias(a).is_err(), "{a:?}");
+        }
+        assert!(validate_alias(&"x".repeat(MAX_ALIAS_CHARS)).is_ok());
+        assert!(validate_alias(&"x".repeat(MAX_ALIAS_CHARS + 1)).is_err());
     }
 
     #[test]

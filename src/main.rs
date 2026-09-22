@@ -14,7 +14,7 @@ use clap::FromArgMatches;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let flag = cli::prescan_lang(&args);
-    i18n::init(flag.as_deref(), None);
+    i18n::init(flag.as_deref());
     let matches = cli::localized_command().get_matches_from(&args);
     let parsed = match cli::Cli::from_arg_matches(&matches) {
         Ok(c) => c,

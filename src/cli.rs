@@ -42,6 +42,9 @@ pub enum Command {
         tz: Option<String>,
         #[arg(long, value_name = "IMAGE")]
         avatar: Option<PathBuf>,
+        /// Store the avatar as pixel art with a GRID×GRID mosaic (default 32).
+        #[arg(long, value_name = "GRID", num_args = 0..=1, default_missing_value = "32", requires = "avatar")]
+        pixel: Option<u32>,
     },
     Edit {
         alias: String,
@@ -59,6 +62,9 @@ pub enum Command {
         avatar: Option<PathBuf>,
         #[arg(long, conflicts_with = "avatar")]
         no_avatar: bool,
+        /// Store the new avatar as pixel art with a GRID×GRID mosaic (default 32).
+        #[arg(long, value_name = "GRID", num_args = 0..=1, default_missing_value = "32", requires = "avatar")]
+        pixel: Option<u32>,
         #[arg(long, value_name = "ALIAS")]
         rename: Option<String>,
     },

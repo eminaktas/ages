@@ -8,13 +8,14 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
         app.should_quit = true;
         return Ok(());
     }
-    match &app.mode {
+    match &mut app.mode {
         Mode::List => match key.code {
             KeyCode::Up | KeyCode::Char('k') => app.move_up(),
             KeyCode::Down | KeyCode::Char('j') => app.move_down(),
             KeyCode::Char('a') => app.begin_add(),
             KeyCode::Char('e') => app.begin_edit(),
             KeyCode::Char('d') => app.begin_delete(),
+            KeyCode::Char('x') => app.begin_remove_avatar(),
             KeyCode::Char('s') => app.open_picker(PickerKind::Sort),
             KeyCode::Char('v') => app.open_picker(PickerKind::View),
             KeyCode::Char('l') => app.open_picker(PickerKind::Lang),
@@ -26,19 +27,21 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
             KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => app.cancel(),
             _ => {}
         },
-        Mode::Error(_) => app.cancel(),
-        Mode::Picker(_) => {
-            let Mode::Picker(p) = &mut app.mode else {
-                unreachable!()
-            };
-            match key.code {
-                KeyCode::Up | KeyCode::Char('k') => p.up(),
-                KeyCode::Down | KeyCode::Char('j') => p.down(),
-                KeyCode::Enter => app.confirm_picker()?,
-                KeyCode::Esc | KeyCode::Char('q') => app.cancel(),
-                _ => {}
+        Mode::ConfirmRemoveAvatar => match key.code {
+            KeyCode::Char('y') | KeyCode::Char('e') | KeyCode::Enter => {
+                app.confirm_remove_avatar()?
             }
-        }
+            KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => app.cancel(),
+            _ => {}
+        },
+        Mode::Error(_) => app.cancel(),
+        Mode::Picker(p) => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => p.up(),
+            KeyCode::Down | KeyCode::Char('j') => p.down(),
+            KeyCode::Enter => app.confirm_picker()?,
+            KeyCode::Esc | KeyCode::Char('q') => app.cancel(),
+            _ => {}
+        },
         Mode::Form(_) => crate::tui::form::handle_key(app, key)?,
     }
     Ok(())
